@@ -57,11 +57,8 @@ public class Program
             _glfw.Terminate();
         }
 
-        int pWidth;
-        int pHeight;
-
         // Obtém o tamanho da janela passado para glfwCreateWindow
-        _glfw.GetWindowSize(window, out pWidth, out pHeight);
+        _glfw.GetWindowSize(window, out int pWidth, out int pHeight);
 
         // Obtém a resolução do monitor principal
         var vidmode = _glfw.GetVideoMode(_glfw.GetPrimaryMonitor());
