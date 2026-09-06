@@ -1,0 +1,274 @@
+﻿using System.Numerics;
+using Silk.NET.GLFW;
+using Silk.NET.OpenGL;
+using StbImageSharp;
+
+namespace LearnSilkNET.src;
+
+public class Program
+{
+    private static Glfw _glfw = null!;
+    private static GL _gl = null!;
+
+    // configurações
+    private const uint SCR_WIDTH = 800;
+    private const uint SCR_HEIGHT = 600;
+
+    // câmera
+    private static Camera _camera = new Camera(new Vector3(0.0f, 0.0f, 3.0f));
+    private static float _lastX = SCR_WIDTH / 2.0f;
+    private static float _lastY = SCR_HEIGHT / 2.0f;
+    private static bool _firstMouse = true;
+
+    // tempo
+    private static float _deltaTime = 0.0f;
+    private static float _lastFrame = 0.0f;
+
+    private unsafe static void Main(string[] args)
+    {
+        _glfw = Glfw.GetApi();
+        _gl = GL.GetApi(_glfw.GetProcAddress);
+
+        // glfw: inicializar e configurar
+        // --------------------------------------------------
+        _glfw.Init();
+        _glfw.WindowHint(WindowHintInt.ContextVersionMajor, 3);
+        _glfw.WindowHint(WindowHintInt.ContextVersionMinor, 3);
+        _glfw.WindowHint(WindowHintOpenGlProfile.OpenGlProfile, OpenGlProfile.Core);
+
+        if (OperatingSystem.IsMacOS())
+        {
+            _glfw.WindowHint(WindowHintBool.OpenGLForwardCompat, true);
+        }
+
+        // criação da janela glfw
+        // --------------------------------------------------
+        WindowHandle* window = _glfw.CreateWindow((int)SCR_WIDTH, (int)SCR_HEIGHT, "Learn Silk.NET", null, null);
+
+        if (window == null)
+        {
+            Console.WriteLine("Falha ao criar a janela Silk.NET");
+            _glfw.Terminate();
+        }
+
+        // Obtém o tamanho da janela passado para glfwCreateWindow
+        _glfw.GetWindowSize(window, out int pWidth, out int pHeight);
+
+        // Obtém a resolução do monitor principal
+        var vidmode = _glfw.GetVideoMode(_glfw.GetPrimaryMonitor());
+
+        // Centralizar a janela
+        _glfw.SetWindowPos(
+            window,
+            (vidmode->Width - pWidth) / 2,
+            (vidmode->Height - pHeight) / 2
+        );
+
+        _glfw.MakeContextCurrent(window);
+        _glfw.SetFramebufferSizeCallback(window, FramebufferSizeCallback);
+        _glfw.SetCursorPosCallback(window, MouseCallback);
+        _glfw.SetScrollCallback(window, ScrollCallback);
+
+        // instruir o GLFW a capturar o mouse
+        _glfw.SetInputMode(window, CursorStateAttribute.Cursor, CursorModeValue.CursorDisabled);
+
+        // instrua a stb_image.h a inverter as texturas carregadas no eixo Y (antes de carregar o modelo).
+        StbImage.stbi_set_flip_vertically_on_load(1);
+
+        // configurar estado global do OpenGL
+        // --------------------------------------------------
+        _gl.Enable(EnableCap.DepthTest);
+
+        // construir e compilar nosso programa de shader
+        // --------------------------------------------------
+        Shader ourShader = new Shader(_gl, "src/model_loading.vs", "src/model_loading.fs");
+
+        // carregar modelos
+        // --------------------------------------------------
+        Model ourModel = new Model(_gl, "res/objects/backpack/backpack.obj");
+
+        // desenhar em wireframe
+        // _gl.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Line);
+
+        // loop de renderização
+        // --------------------------------------------------
+        while (!_glfw.WindowShouldClose(window))
+        {
+            // lógica de tempo por quadro
+            // --------------------------------------------------
+            float currentFrame = (float)_glfw.GetTime();
+            _deltaTime = currentFrame - _lastFrame;
+            _lastFrame = currentFrame;
+
+            // input
+            // --------------------------------------------------
+            ProcessInput(window);
+
+            // render
+            // --------------------------------------------------
+            _gl.ClearColor(0.1f, 0.1f, 0.1f, 1.0f);
+            _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit); // limpe também o buffer de profundidade agora!
+
+            // não se esqueça de ativar o shader antes de definir os uniforms
+            ourShader.Use();
+
+            // transformações de visualização/projeção
+            Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(
+                fieldOfView:       MathHelper.DegreesToRadians(_camera.Zoom), 
+                aspectRatio:       (float)SCR_WIDTH / (float)SCR_HEIGHT, 
+                nearPlaneDistance: 0.1f, 
+                farPlaneDistance:  100.0f
+            );
+            Matrix4x4 view = _camera.GetViewMatrix();
+
+            ourShader.SetMat4("view", view);
+            ourShader.SetMat4("projection", projection);
+
+            // renderizar o modelo carregado
+            Matrix4x4 model = Matrix4x4.Identity;
+            model *= Matrix4x4.CreateScale(new Vector3(1.0f, 1.0f, 1.0f)); // é um pouco grande demais para a nossa cena, então reduza a escala
+            model *= Matrix4x4.CreateTranslation(new Vector3(0.0f, 0.0f, 0.0f)); // desloque para baixo para posicionar no centro da cena
+            ourShader.SetMat4("model", model);
+
+            ourModel.Draw(ourShader);
+
+            // glfw: troca os buffers e processa eventos de E/S (teclas pressionadas/liberadas, movimento do mouse, etc.)
+            // --------------------------------------------------
+            _glfw.SwapBuffers(window);
+            _glfw.PollEvents();
+        }
+
+        // glfw: encerra, liberando todos os recursos do GLFW alocados anteriormente.
+        // --------------------------------------------------
+        _glfw.Terminate();
+    }
+
+    // process all input: query GLFW whether relevant keys are pressed/released this frame and react accordingly
+    // --------------------------------------------------
+    private static unsafe void ProcessInput(WindowHandle* window)
+    {
+        if (_glfw.GetKey(window, Keys.Escape) == (int)InputAction.Press)
+        {
+            _glfw.SetWindowShouldClose(window, true);
+        }
+
+        if (_glfw.GetKey(window, Keys.W) == (int)InputAction.Press)
+        {
+            _camera.ProcessKeyboard(CameraMovement.FORWARD, _deltaTime);
+        }
+        if (_glfw.GetKey(window, Keys.S) == (int)InputAction.Press)
+        {
+            _camera.ProcessKeyboard(CameraMovement.BACKWARD, _deltaTime);
+        }
+        if (_glfw.GetKey(window, Keys.A) == (int)InputAction.Press)
+        {
+            _camera.ProcessKeyboard(CameraMovement.LEFT, _deltaTime);
+        }
+        if (_glfw.GetKey(window, Keys.D) == (int)InputAction.Press)
+        {
+            _camera.ProcessKeyboard(CameraMovement.RIGHT, _deltaTime);
+        }
+    }
+
+    // glfw: sempre que o tamanho da janela é alterado (pelo SO ou por redimensionamento do usuário), esta função de callback é executada
+    // --------------------------------------------------
+    private static unsafe void FramebufferSizeCallback(WindowHandle* window, int width, int height)
+    {
+        // certifique-se de que a viewport corresponda às novas dimensões da janela; observe que a largura e
+        // a altura serão significativamente maiores do que as especificadas em telas Retina.
+        _gl.Viewport(0, 0, (uint)width, (uint)height);
+    }
+
+    // glfw: sempre que o mouse se move, este callback é chamado
+    // --------------------------------------------------
+    private static unsafe void MouseCallback(WindowHandle* window, double xposIn, double yposIn)
+    {
+        float xpos = (float)xposIn;
+        float ypos = (float)yposIn;
+
+        if (_firstMouse)
+        {
+            _lastX = xpos;
+            _lastY = ypos;
+
+            _firstMouse = false;
+        }
+
+        float xoffset = xpos - _lastX;
+        float yoffset = _lastY - ypos; // invertido, já que as coordenadas y vão de baixo para cima
+
+        _lastX = xpos;
+        _lastY = ypos;
+
+        _camera.ProcessMouseMovement(xoffset, yoffset);
+    }
+
+    // glfw: sempre que a roda de rolagem do mouse é girada, este callback é chamado
+    // --------------------------------------------------
+    private static unsafe void ScrollCallback(WindowHandle* window, double xoffset, double yoffset)
+    {
+        _camera.ProcessMouseScroll((float)yoffset);
+    }
+
+    // função utilitária para carregar uma textura 2D a partir de um arquivo
+    // --------------------------------------------------
+    private static unsafe uint LoadTexture(string path)
+    {
+        uint textureID;
+        _gl.GenTextures(1, out textureID);
+
+        int width, height;
+        byte[] data;
+
+        ImageResult image;
+
+        using (FileStream stream = File.OpenRead(path))
+        {
+            image = ImageResult.FromStream(stream, ColorComponents.Default);
+
+            width = image.Width;
+            height = image.Height;
+            data = image.Data;
+        }
+
+        if (data != null)
+        {
+            InternalFormat internalFormat = InternalFormat.Rgb;
+            PixelFormat pixelFormat = PixelFormat.Rgb;
+
+            if (image.Comp == ColorComponents.Grey)
+            {
+                internalFormat = InternalFormat.Red;
+                pixelFormat = PixelFormat.Red;
+            }
+            else if (image.Comp == ColorComponents.RedGreenBlue)
+            {
+                internalFormat = InternalFormat.Rgb;
+                pixelFormat = PixelFormat.Rgb;
+            }
+            else if (image.Comp == ColorComponents.RedGreenBlueAlpha)
+            {
+                internalFormat = InternalFormat.Rgba;
+                pixelFormat = PixelFormat.Rgba;
+            }
+
+            _gl.BindTexture(TextureTarget.Texture2D, textureID);
+            fixed (byte* ptr = data)
+            {
+                _gl.TexImage2D(TextureTarget.Texture2D, 0, internalFormat, (uint)width, (uint)height, 0, pixelFormat, PixelType.UnsignedByte, ptr);
+            }
+            _gl.GenerateMipmap(TextureTarget.Texture2D);
+
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)TextureWrapMode.Repeat);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)TextureWrapMode.Repeat);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)TextureMinFilter.LinearMipmapLinear);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)TextureMagFilter.Linear);
+        }
+        else
+        {
+            Console.WriteLine("Falha ao carregar a textura no caminho: " + path);
+        }
+
+        return textureID;
+    }
+}
