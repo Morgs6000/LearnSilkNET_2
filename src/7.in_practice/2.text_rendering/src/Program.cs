@@ -208,7 +208,7 @@ public class Program
             // render
             // --------------------------------------------------
             _gl.ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-            _gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+            _gl.Clear(ClearBufferMask.ColorBufferBit);
 
             RenderText(shader, "This is sample text", 25.0f, 25.0f, 1.0f, new Vector3(0.5f, 0.8f, 0.2f));
             RenderText(shader, "(C) LearnOpenGL.com", 540.0f, 570.0f, 0.5f, new Vector3(0.3f, 0.7f, 0.9f));

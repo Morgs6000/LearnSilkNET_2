@@ -10,6 +10,10 @@
 
 - [.NET](https://dotnet.microsoft.com/pt-br/)
 
+```xml
+<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+```
+
 - dotnet new gitignore
 
 - dotnet new console
