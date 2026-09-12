@@ -62,6 +62,9 @@ public class Program
         _glfw.SetKeyCallback(window, KeyCallback);
         _glfw.SetFramebufferSizeCallback(window, FramebufferSizeCallback);
 
+        // Ativar v-sync
+        // _glfw.SwapInterval(1);
+
         // Configuração do OpenGL
         // --------------------------------------------------
         _gl.Viewport(0, 0, (uint)SCREEN_WIDTH, (uint)SCREEN_HEIGHT);

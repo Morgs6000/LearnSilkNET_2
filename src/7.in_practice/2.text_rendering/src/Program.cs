@@ -250,7 +250,6 @@ public class Program
         shader.SetVec3("textColor", color);
 
         _gl.ActiveTexture(TextureUnit.Texture0);
-
         _gl.BindVertexArray(VAO);
 
         // percorrer todos os caracteres

@@ -247,7 +247,7 @@ public class Program
         ourShader.SetInt("texture1", 0);
         ourShader.SetInt("texture2", 1);
 
-        void OnRender()
+        void WindowRefreshCallback(WindowHandle* window)
         {
             // lógica de tempo por quadro
             // --------------------------------------------------
@@ -312,16 +312,13 @@ public class Program
             // _glfw.PollEvents();
         }
 
-        _glfw.SetWindowRefreshCallback(window, (win) =>
-        {
-            OnRender();
-        });
+        _glfw.SetWindowRefreshCallback(window, WindowRefreshCallback);
 
         // loop de renderização
         // --------------------------------------------------
         while (!_glfw.WindowShouldClose(window))
         {
-            OnRender();
+            WindowRefreshCallback(window);
 
             // // lógica de tempo por quadro
             // // --------------------------------------------------
