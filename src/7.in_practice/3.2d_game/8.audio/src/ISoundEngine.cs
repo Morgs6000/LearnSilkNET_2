@@ -6,225 +6,116 @@ namespace LearnSilkNET.src;
 
 public class ISoundEngine
 {
-    private ALContext _alc = null!;
-    private AL _al = null!;
-
+    private readonly ALContext _alc = ALContext.GetApi();
+    private readonly AL _al = AL.GetApi();
     private unsafe Device* _device;
     private unsafe Context* _context;
-
-    private List<uint> _sources = new List<uint>();
-    private List<uint> _buffers = new List<uint>();
+    private bool _initialized;
+    private readonly List<uint> _sources = new();
+    private readonly List<uint> _buffers = new();
 
     public ISoundEngine()
     {
-        _alc = ALContext.GetApi();
-        _al = AL.GetApi();
-
         unsafe
         {
             _device = _alc.OpenDevice("");
-
-            if (_device == null)
-            {
-                Console.WriteLine("Não foi possível criar o dispositivo.");
-                return;
-            }
-
+            if (_device == null) { Console.Error.WriteLine("Áudio desativado: dispositivo OpenAL indisponível."); return; }
             _context = _alc.CreateContext(_device, null);
-            _alc.MakeContextCurrent(_context);
+            if (_context == null || !_alc.MakeContextCurrent(_context))
+            {
+                Console.Error.WriteLine("Áudio desativado: contexto OpenAL indisponível.");
+                if (_context != null) _alc.DestroyContext(_context);
+                _alc.CloseDevice(_device); _context = null; _device = null; return;
+            }
         }
-
         _al.GetError();
+        _initialized = true;
     }
 
     public void Play2D(string filePath, bool shouldLoop)
     {
-        byte[] audioData;
-        int sampleRate;
-        int channels;
-        
-        string extension = Path.GetExtension(filePath).ToLower();
-        
-        if (extension == ".mp3")
+        if (!_initialized) return;
+        uint source = 0, buffer = 0;
+        try
         {
-            // Para MP3, usa Mp3FileReaderBase
-            using (var reader = new Mp3FileReaderBase(filePath, wf => new Mp3FrameDecompressor(wf)))
+            var audio = LoadPcm16(filePath);
+            BufferFormat format = audio.Channels switch
             {
-                sampleRate = reader.Mp3WaveFormat.SampleRate;
-                channels = reader.Mp3WaveFormat.Channels;
-                
-                Console.WriteLine($"Formato MP3: {reader.Mp3WaveFormat}");
-                Console.WriteLine($"Bits por sample: {reader.Mp3WaveFormat.BitsPerSample}");
-                
-                // Lê os dados
-                using (var memoryStream = new MemoryStream())
+                1 => BufferFormat.Mono16,
+                2 => BufferFormat.Stereo16,
+                _ => throw new NotSupportedException($"OpenAL suporta apenas mono/estéreo: {audio.Channels} canais.")
+            };
+            source = _al.GenSource(); buffer = _al.GenBuffer();
+            if (source == 0 || buffer == 0) throw new InvalidOperationException("OpenAL não criou source/buffer.");
+            _al.SetSourceProperty(source, SourceBoolean.Looping, shouldLoop);
+            unsafe { fixed (byte* data = audio.Data) _al.BufferData(buffer, format, data, audio.Data.Length, audio.SampleRate); }
+            CheckAl($"carregar '{filePath}'");
+            _al.SetSourceProperty(source, SourceInteger.Buffer, buffer); _al.SourcePlay(source);
+            CheckAl($"reproduzir '{filePath}'");
+            _sources.Add(source); _buffers.Add(buffer);
+            Console.WriteLine($"Áudio carregado: {audio.Channels} canais, {audio.SampleRate} Hz, {audio.Data.Length} bytes");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Não foi possível reproduzir '{filePath}': {ex.Message}");
+            if (source != 0) { _al.SourceStop(source); _al.DeleteSource(source); }
+            if (buffer != 0) _al.DeleteBuffer(buffer);
+        }
+    }
+
+    private static (byte[] Data, int SampleRate, int Channels) LoadPcm16(string path)
+    {
+        using WaveStream reader = Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            // Mp3WaveFormat é o formato comprimido de entrada; WaveFormat é a saída PCM do NLayer.
+            ".mp3" => new Mp3FileReaderBase(path, wf => new Mp3FrameDecompressor(wf)),
+            ".wav" => new WaveFileReader(path),
+            _ => throw new NotSupportedException($"Formato não suportado: {Path.GetExtension(path)}")
+        };
+        using var stream = new MemoryStream(); reader.CopyTo(stream);
+        return ConvertToPcm16(stream.ToArray(), reader.WaveFormat, path);
+    }
+
+    private static (byte[] Data, int SampleRate, int Channels) ConvertToPcm16(byte[] input, WaveFormat f, string path)
+    {
+        if (f.Channels < 1 || f.SampleRate < 1) throw new InvalidDataException($"Metadados inválidos: '{path}'.");
+        if (f.Encoding == WaveFormatEncoding.Pcm && f.BitsPerSample == 16) return (input, f.SampleRate, f.Channels);
+        int size = f.BitsPerSample / 8;
+        if (size is < 1 or > 4 || input.Length % size != 0) throw new NotSupportedException($"Formato não suportado em '{path}': {f}.");
+        byte[] output = new byte[input.Length / size * 2];
+        for (int i = 0; i < input.Length / size; i++)
+        {
+            int o = i * size;
+            float sample = f.Encoding == WaveFormatEncoding.IeeeFloat && f.BitsPerSample == 32
+                ? BitConverter.ToSingle(input, o)
+                : f.BitsPerSample switch
                 {
-                    reader.CopyTo(memoryStream);
-                    byte[] rawData = memoryStream.ToArray();
-                    
-                    // Verifica o formato dos dados
-                    if (reader.Mp3WaveFormat.BitsPerSample == 16)
-                    {
-                        // Já está em 16-bit PCM
-                        audioData = rawData;
-                        Console.WriteLine("Dados já em 16-bit PCM");
-                    }
-                    else
-                    {
-                        // Converte de float (32-bit) para 16-bit
-                        int floatSampleCount = rawData.Length / 4;
-                        audioData = new byte[floatSampleCount * 2];
-                        
-                        for (int i = 0; i < floatSampleCount; i++)
-                        {
-                            float sample = BitConverter.ToSingle(rawData, i * 4);
-                            sample = Math.Clamp(sample, -1.0f, 1.0f);
-                            short sample16 = (short)(sample * 32767.0f);
-                            audioData[i * 2] = (byte)(sample16 & 0xFF);
-                            audioData[i * 2 + 1] = (byte)((sample16 >> 8) & 0xFF);
-                        }
-                        Console.WriteLine("Convertido de float para 16-bit PCM");
-                    }
-                }
-            }
+                    8 => (input[o] - 128) / 128f,
+                    16 => BitConverter.ToInt16(input, o) / 32768f,
+                    24 => (((input[o] | input[o + 1] << 8 | input[o + 2] << 16) << 8) >> 8) / 8388608f,
+                    32 => BitConverter.ToInt32(input, o) / 2147483648f,
+                    _ => throw new NotSupportedException($"PCM de {f.BitsPerSample} bits não suportado.")
+                };
+            short value = (short)(Math.Clamp(sample, -1f, 1f) * 32767f);
+            output[i * 2] = (byte)value; output[i * 2 + 1] = (byte)(value >> 8);
         }
-        else if (extension == ".wav")
-        {
-            // Para WAV, usa WaveFileReader
-            using (var reader = new WaveFileReader(filePath))
-            {
-                sampleRate = reader.WaveFormat.SampleRate;
-                channels = reader.WaveFormat.Channels;
-                
-                Console.WriteLine($"Formato WAV: {reader.WaveFormat}");
-                
-                // Lê os dados
-                using (var memoryStream = new MemoryStream())
-                {
-                    reader.CopyTo(memoryStream);
-                    audioData = memoryStream.ToArray();
-                }
-                
-                // Se não for 16-bit PCM, converte
-                if (reader.WaveFormat.BitsPerSample != 16 || 
-                    reader.WaveFormat.Encoding != WaveFormatEncoding.Pcm)
-                {
-                    Console.WriteLine("Convertendo WAV para 16-bit PCM...");
-                    
-                    int bytesPerSample = reader.WaveFormat.BitsPerSample / 8;
-                    int sampleCount = audioData.Length / bytesPerSample;
-                    byte[] convertedData = new byte[sampleCount * 2];
-                    
-                    for (int i = 0; i < sampleCount; i++)
-                    {
-                        int offset = i * bytesPerSample;
-                        float sample = 0;
-                        
-                        switch (reader.WaveFormat.BitsPerSample)
-                        {
-                            case 8:
-                                // 8-bit PCM (unsigned)
-                                sample = (audioData[offset] - 128) / 128.0f;
-                                break;
-                            case 24:
-                                // 24-bit PCM
-                                int value24 = audioData[offset] | 
-                                             (audioData[offset + 1] << 8) | 
-                                             (audioData[offset + 2] << 16);
-                                if ((value24 & 0x800000) != 0)
-                                    value24 |= unchecked((int)0xFF000000);
-                                sample = value24 / 8388608.0f;
-                                break;
-                            case 32:
-                                // 32-bit float ou PCM
-                                sample = BitConverter.ToSingle(audioData, offset);
-                                break;
-                        }
-                        
-                        sample = Math.Clamp(sample, -1.0f, 1.0f);
-                        short sample16 = (short)(sample * 32767.0f);
-                        convertedData[i * 2] = (byte)(sample16 & 0xFF);
-                        convertedData[i * 2 + 1] = (byte)((sample16 >> 8) & 0xFF);
-                    }
-                    
-                    audioData = convertedData;
-                }
-            }
-        }
-        else
-        {
-            Console.WriteLine($"Formato não suportado: {extension}");
-            return;
-        }
+        return (output, f.SampleRate, f.Channels);
+    }
 
-        // Determina o formato OpenAL
-        BufferFormat format;
-        if (channels == 1)
-        {
-            format = BufferFormat.Mono16;
-        }
-        else if (channels == 2)
-        {
-            format = BufferFormat.Stereo16;
-        }
-        else
-        {
-            Console.WriteLine($"Não é possível reproduzir áudio com {channels} canais");
-            return;
-        }
-
-        // Cria source e buffer
-        uint source = _al.GenSource();
-        uint buffer = _al.GenBuffer();
-        
-        _sources.Add(source);
-        _buffers.Add(buffer);
-        
-        _al.SetSourceProperty(source, SourceBoolean.Looping, shouldLoop);
-
-        // Carrega os dados de áudio
-        unsafe
-        {
-            fixed (byte* pData = audioData)
-            {
-                _al.BufferData(buffer, format, pData, audioData.Length, sampleRate);
-            }
-        }
-
-        // Verifica erros do OpenAL
+    private void CheckAl(string operation)
+    {
         AudioError error = _al.GetError();
-        if (error != AudioError.NoError)
-        {
-            Console.WriteLine($"Erro OpenAL: {error}");
-        }
-        
-        // Reproduz o áudio
-        _al.SetSourceProperty(source, SourceInteger.Buffer, buffer);
-        _al.SourcePlay(source);
-        
-        Console.WriteLine($"Áudio carregado: {channels} canais, {sampleRate} Hz, {audioData.Length} bytes");
+        if (error != AudioError.NoError) throw new InvalidOperationException($"Erro OpenAL ao {operation}: {error}");
     }
 
     public void Drop()
     {
-        foreach (var source in _sources)
+        if (_initialized)
         {
-            _al.SourceStop(source);
-            _al.DeleteSource(source);
+            foreach (uint source in _sources) { _al.SourceStop(source); _al.DeleteSource(source); }
+            foreach (uint buffer in _buffers) _al.DeleteBuffer(buffer);
+            unsafe { _alc.DestroyContext(_context); _alc.CloseDevice(_device); }
         }
-        
-        foreach (var buffer in _buffers)
-        {
-            _al.DeleteBuffer(buffer);
-        }
-        
-        unsafe
-        {
-            _alc.DestroyContext(_context);
-            _alc.CloseDevice(_device);
-        }
-
-        _al.Dispose();
-        _alc.Dispose();
+        _al.Dispose(); _alc.Dispose(); _initialized = false;
     }
 }
