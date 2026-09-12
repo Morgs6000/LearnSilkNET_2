@@ -14,22 +14,38 @@
 <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 ```
 
-- dotnet new gitignore
+```xml
+dotnet new gitignore
+```
 
-- dotnet new console
+```xml
+dotnet new console
+```
 
-- dotnet add package Silk.NET.Windowing
-- dotnet add package Silk.NET.Input
-- dotnet add package Silk.NET.OpenGL
+```xml
+dotnet add package Silk.NET.Windowing
+dotnet add package Silk.NET.Input
+dotnet add package Silk.NET.OpenGL
+```
 
-- dotnet add package StbImageSharp
+```xml
+dotnet add package StbImageSharp
+```
 
-- dotnet add package Silk.NET.Assimp
+```xml
+dotnet add package Silk.NET.Assimp
+```
 
-- dotnet add package FreeTypeSharp
+```xml
+dotnet add package FreeTypeSharp
+```
 
-- dotnet add package Silk.NET.OpenAL
-- dotnet add package NAudio
-- dotnet add package NLayer.NAudioSupport
+```xml
+dotnet add package Silk.NET.OpenAL
+dotnet add package NAudio
+dotnet add package NLayer.NAudioSupport
+```
 
-- dotnet run
+```xml
+dotnet run
+```
